@@ -1,0 +1,1442 @@
+!-------------------------------------------------------------------------------
+!     File: grue.inf
+!   Author: Michael Sternberg
+!     Date: 20171019
+! Abstract: Inform 6.15 + Library 6/2 conversion of Grue by Charle Mangin
+!-------------------------------------------------------------------------------
+!  History:
+! 20171019 (mhs) Initial creation
+! 20171120 (mhs) Created make-able bundle of source files
+!-------------------------------------------------------------------------------
+Constant Story "GRUE";
+Constant Headline "^An Interactive Fiction by Charles Mangin^";
+Serial "171019";
+Release 1;
+
+!------------------------------------------------------------------------------
+!                                 P A R S E R
+!------------------------------------------------------------------------------
+
+! Not using normal compass directions. Alternate directions will need to be
+! defined in the compass object after the parser is included.
+Constant WITHOUT_DIRECTIONS;
+
+Constant MAX_SCORE = 1;
+
+! Override default inventory subroutine (defined later)
+Replace InvSub;
+
+Include "Parser.h";
+Include "VerbLib.h";
+
+!------------------------------------------------------------------------------
+!                                G L O B A L S
+!------------------------------------------------------------------------------
+Global help_state;
+Global compass_count;
+
+! Our alternate directions
+Object n_obj "north" compass
+    with name 'n' 'north'
+       , article "the"
+       , door_dir n_to
+       , number 0
+    has scenery;
+
+Object s_obj "south" compass
+    with name 's' 'south'
+       , article "the"
+       , door_dir s_to
+       , number 0
+    has scenery;
+
+Object e_obj "east" compass
+    with name 'e' 'east'
+       , article "the"
+       , door_dir e_to
+       , number 0
+    has scenery;
+
+Object w_obj "west" compass
+    with name 'w' 'west'
+       , article "the"
+       , door_dir w_to
+       , number 0
+    has scenery;
+
+Object in_obj "inside" compass
+    with name 'i' 'inside'
+       , article "the"
+       , door_dir in_to
+       , number 0
+    has scenery;
+
+Object out_obj "outside" compass
+    with name 'o' 'outside'
+       , article "the"
+       , door_dir out_to
+       , number 0
+    has scenery;
+
+Object se_obj "deeper" compass
+    with name 'd' 'deeper'
+       , article "the"
+       , door_dir se_to
+       , number 0
+    has scenery;
+
+Object nw_obj "back" compass
+    with name 'b' 'back'
+       , article "the"
+       , door_dir nw_to
+       , number 0
+    has scenery;
+
+Object u_obj "up" compass
+    with name 'u' 'up'
+       , article "the"
+       , door_dir u_to
+       , number 0
+    has scenery;
+
+Object d_obj "down" compass
+    with name 'd' 'down'
+       , article "the"
+       , door_dir d_to
+       , number 0
+    has scenery;
+
+!-------------------------------------------------------------------------------
+!                                 S C E N E S
+!-------------------------------------------------------------------------------
+
+! The 'general' attribute is used to denote 'darkness'.
+! When the grue uses any of its senses, darkness is dispelled.
+! Yes, I tried using ~light but it confuses the scope of objects
+! Yes, I tried add_to_scope but the wrong object would be selected when using 
+! a verb with no noun like "Listen".
+! Yes, I tried to use 'if (noun == nothing)' but couldn't get it to work
+Class DarkRoom
+ with short_name
+      [;
+         if (self has general) print "Darkness";
+         else                  print (object) self;
+         rtrue;
+      ],
+ with before
+      [; Go:     if (location has general)
+                     "There's nothing like that here.";
+                 if (noun == s_obj or n_obj or e_obj or w_obj)
+                     NoCompassSub();
+      ],
+ with after
+      [; Go:     <<Look>>;
+      ],
+ with description [; DescribeRoom(self); ],
+  has light general;
+
+! Lair is a room
+Object Lair "Lair"
+    with description
+         [; print "You are wedged comfortably into your lair, relaxing in the
+            cold comfort of a stone crevice, the walls worn smooth by years of
+            occupation. Here, the darkness is complete, like Mother's
+            comforting, opaque fur. No luminous fungi or glowing worms venture
+            here with their harsh, painful light.^"; CheckEyes();
+         ],
+    with after
+         [; Go: LurkStopSub(); <<Look>>; 
+         ],
+    with before
+         [; Lurk:  
+               "The low ceiling and cramped space in the hollow leaves you no 
+                room to lurk, plus you might fall into the pit if you're not 
+                careful.";
+            Go:     
+                if (noun == s_obj or n_obj or e_obj or w_obj) NoCompassSub();
+         ],
+    with each_turn
+         [; if (action == ##HELP) rtrue;
+            if (self.turns_active++ ==  5)
+            {
+                if (Grue.eyesopen == false)
+                   "^You sense the presence of something, perhaps edible,
+                    just outside your lair.";
+                else
+                   "^Your eyes begin to water.";
+            }
+        ],
+    with out_to Cavern,
+    with turns_active 0,
+    has light
+;
+
+!----------------------------------------------------
+! the lair wall is scenery. the lair wall is in Lair.
+!----------------------------------------------------
+Object LairWall "lair wall" Lair
+    with name 'lair' 'wall',
+    with before
+         [; Touch: 
+               "Touching the lair wall, you feel the stone is smoothed here, 
+                worn down by occupation by ageless generations of grues before
+                you, who found this nook, as you did, by smell. Likely, they 
+                took it as you did - by force - and ate the previous 
+                occupants.^^Just outside, the walls are rough, tumbled stone, 
+                perfect for lurking.";
+            Listen: 
+                DescribeNothing(self); rtrue;
+            Smell: 
+               "From the lair wall, you smell the generations of grues that 
+                have used this lair.";
+            Taste: 
+               "From the wall, you taste the generations of grues that have
+                used this lair. Which is pretty gross, even for a grue.";
+         ],
+    has scenery
+;
+
+!------------------------
+! cavern is a dark room.
+!------------------------
+DarkRoom Cavern "Cavern"
+    with name 'cavern' 'darkness',
+    with each_turn
+         [; if (action == ##HELP) rtrue;
+            if (self.turns_active == 5 && Adventurer in Cavern)
+            {
+                print "^Your stomach rumbles from hunger, and you hear a small
+                gasp nearby, followed by the scuffle of boots on rough stone.^";
+
+                ScurryAway();
+            }
+            else if (self.turns_active == 10 && Adventurer in Tunnel)
+            {
+                deadflag = 1;
+
+                print "^Your stomach rumbles from hunger, louder this time, and
+                you hear a small gasp deeper in the tunnel, followed by the
+                scuffle of leather boots on smooth stone, retreating into the
+                distance.^";
+
+                DisplayStarvation();
+                DisplayTheEnd();
+            }
+            self.turns_active++;
+         ],
+    with in_to Lair,
+         se_to Tunnel,
+         s_to  Tunnel,
+    with turns_active 0
+;
+
+!------------------------------------------------------
+! the cave wall is scenery. the cave wall is in cavern.
+!------------------------------------------------------
+Object CaveWall "cave wall" Cavern
+    with name 'cave' 'wall',
+    with before
+         [; Touch: 
+               "Touching the cave wall, you feel rough, tumbled stone, perfect 
+                for lurking.";
+            Listen,
+            Smell:      
+                DescribeNothing(self); rtrue;
+            Taste: 
+               "The taste of cave wall is damp, rough stone, with the
+                occasional lichen for flavor. Dust and pebbles stick to your 
+                tongue.";
+         ],
+    has scenery
+;
+
+!--------------------------------------------------------
+! the cave floor is scenery. the cave floor is in cavern.
+!--------------------------------------------------------
+Object CaveFloor "cave floor" Cavern
+    with name 'cave' 'floor' 'ground',
+    with before
+         [; Touch: 
+               "Touching the cave floor, you feel cool and damp, well trampled
+                dirt. Adventurers and other edible prey stumble this way 
+                frequently from the other tunnels, deeper down.";
+            Listen: 
+                DescribeNothing(self); rtrue;
+            Smell: 
+               "From the cave floor you smell innumerable small creatures,
+                mostly their feet, droppings and long-rotten remains. You can 
+                also detect the underlying smell of leather boots, from 
+                countless hapless adventurers who wandered this way.^^This last
+                scent is stronger than usual. There must be an adventurer 
+                nearby.";
+            Taste: 
+               "From the cave floor you taste innumerable small creatures,
+                mostly their feet, droppings and long-rotten remains. Luckily, 
+                you have a strong, if empty, stomach.  There are also recent 
+                flavor notes of the worn soles of an adventurer's leather 
+                boots.";
+         ],
+    has scenery
+;
+
+!-----------------------
+! tunnel is a dark room.
+!-----------------------
+DarkRoom Tunnel "Tunnel"
+    with name 'tunnel' 'darkness',
+    with before
+         [; Lurk:  
+            "The tunnel is too cramped. Its curving walls provide no cover for 
+             proper lurking.";
+         ],
+    with after
+         [; Go: LurkStopSub();
+         ],
+    with n_to  Cavern,
+         nw_to Cavern,
+         s_to  Grotto,
+         se_to Grotto
+;
+
+!------------------------------------------------------
+! the tunnel wall is scenery. tunnel wall is in tunnel.
+!------------------------------------------------------
+Object TunnelWall "tunnel wall" Tunnel
+    with name 'tunnel' 'wall',
+    with before
+         [; Touch: 
+               "Touching the tunnel wall, you feel cool stone worn smooth by
+                water. The walls are cracked and rougher in the direction of
+                your lair, and smoother as you go deeper in the tunnel.";
+            Taste: 
+               "From the tunnel wall, you taste damp, smooth stone, with a
+                slightest hint of minerals and salt.";
+         ],
+    has scenery;
+
+!--------------------------------------------------------
+! the tunnel floor is scenery. tunnel floor is in tunnel.
+!--------------------------------------------------------
+Object TunnelFloor "tunnel floor" Tunnel
+    with name 'ground' 'floor',
+    with before
+         [; Touch:      
+                print "Touching the tunnel floor, you fell hard, smooth stone, 
+                with a thin layer of slime and mud tracked here from deeper in 
+                the tunnel";
+                if (Adventurer in Tunnel) ". Your claw briefly brushes the worn 
+                boot of an adventurer, eliciting a shriek that echoes off the 
+                cavern walls. The adventurer slips on the slime of the floor, 
+                just out of claw's reach.";
+                else ".";
+            Smell: 
+               "From the tunnel floor, you smell rot and slime in stagnant 
+                water. There is also the scent of wet boot leather.^^This last 
+                scent is stronger than usual. There must be an adventurer 
+                nearby.";
+            Taste: 
+               "From the tunnel floor, you taste stagnant, muddy water.^^There 
+                are also recent flavor notes wet leather.";
+        ],
+    has scenery;
+
+!-----------------------
+! grotto is a dark room.
+!-----------------------
+DarkRoom Grotto "Grotto"
+    with name 'grotto' 'darkness',
+    with before
+         [; Lurk:   
+               "The smooth, damp walls of the grotto make lurking a difficult 
+                proposition. Perhaps elsewhere, deeper in the caverns would be 
+                better.";
+         ],
+    with n_to  Tunnel,
+         nw_to Tunnel,
+         s_to  Hollow,
+         se_to Hollow
+;
+
+!----------------------------------------------------------
+! the grotto wall is scenery. the grotto wall is in grotto.
+!----------------------------------------------------------
+Object GrottoWall "grotto wall" Grotto
+    with name 'grotto' 'wall',
+    with before
+         [; Touch:  
+                print "Touching the grotto wall, you feel stone, worn smooth by 
+                centuries of slow flowing water. The walls open up wide here, 
+                and a hollow is formed deeper in the cavern. Back toward your 
+                lair, the walls close together and form a tunnel";
+                if (Adventurer in Grotto) ". Your claw briefly brushes the 
+                tender flesh of an adventurer, who flinches away with a 
+                whimper.";
+                else ".";
+         ],
+    has scenery
+;
+
+!-----------------------------------------------
+! the stream is scenery. the stream is in grotto.
+!-----------------------------------------------
+Object Stream "stream" Grotto
+    with name 'stream' 'water',
+    with before
+         [; Touch: 
+               "Touching the steam you feel cool and wet. You dip a claw in the    
+                stream and feel it flowing slowly from one end of the grotto to
+                the other where it has worn, over the centuries, a smooth 
+                hollow in the stone.";
+            Drink,
+            Taste:  
+                print "From the stream, you taste the cool, fresh water that
+                flows slowly here, dribbling from cracks in the wall. It is 
+                slightly salty from minerals leeched from the rocks, but 
+                refreshing";
+                if (Adventurer in Grotto) ". You can also sense boot leather,
+                sweat, and dirt tracked from elsewhere in the caverns flowing in 
+                the water.";
+                else ".";
+            Smell: 
+               "From the stream you smell clear, fresh water, punctuated by the 
+                recent passing of wet leather, sweat and hopelessness.";
+            Listen: 
+                print "From the stream you hear the drip and splash of flowing 
+                water echoing from the smooth walls all around. It is strongest 
+                from one side of the grotto, where water oozes from cracks in 
+                the wall, falls in rivulets to the floor, forming a small 
+                stream";
+                if (Adventurer in Grotto) ".^^Clumsy splashing and the wet 
+                squish of muddy boots on smooth stone let you know you share the
+                grotto with an adventurer.";
+                else ".";
+         ],
+    has scenery;
+
+!-----------------------
+! hollow is a dark room.
+!-----------------------
+DarkRoom Hollow "Hollow"
+    with name 'hollow' 'darkness',
+    with after
+         [; Go: LurkStopSub();
+                Pit.turns_active = -1;
+         ],
+    with before
+         [; Go:     
+                if (location has general) "There's nothing like that here.";
+            Lurk:   
+               "The low ceiling and cramped space in the hollow leaves you no 
+                room to lurk, plus you might fall into the pit if you're not    
+                careful.";
+         ],
+    with n_to  Grotto,
+         nw_to Grotto,
+         d_to  Pit   ! 'enter pit' 'climb down pit'  also moves player to Pit
+;
+
+!--------------------------------------------------------------------------
+! the walls of the hollow is scenery.
+! the walls of the hollow is in hollow.
+!--------------------------------------------------------------------------
+Object HollowWall "walls of the hollow" Hollow
+    with name 'wall' 'walls',
+    with before
+         [; Touch: 
+                "Touching the walls of the hollow you feel worn stone, concave 
+                 and smooth. The ceiling here is low, and the floor rounded from 
+                 the flow of water. You hunch your bulk against the wall and 
+                 inch around the hollow, locating the edge of a deep, sheer pit 
+                 with your toes.";
+            Taste: 
+                "From the walls of the hollow you taste the lichens and other 
+                 small life that cling to the walls and ceiling of the hollow. 
+                 The flavor is corrupted by the smell of decay that floats in 
+                 the air here, wafting up from a deep pit just below.";
+         ]
+    has scenery
+;
+
+Object Darkness "darkness" Hollow
+    with name 'pit' 'darkness'
+    with before
+         [; Smell:   
+                print "From the darkness you smell decay, rot, and the bitter, 
+                foul smell of death wafting up here from a deep pit just 
+                below";
+                if (Adventurer in Pit) ". There is another smell in the pit, of
+                an adventurer, injured and desperate. You begin to salivate at 
+                the delicious smell of panic.";
+                else ".";
+            Listen: 
+                print "From the darkness you hear the hollow echo of your 
+                breathing and the other small sounds here, and you sense a deep
+                pit just below you";
+                if (Adventurer in Pit) ". An occasional pathetic moan floats up 
+                from the depths, along with the wet squelching sounds of    
+                something moving below.";
+                else ".";       
+         ],
+    has scenery;
+
+!--------------------
+! pit is a dark room
+!--------------------
+DarkRoom Pit "Pit"
+    with name 'pit' 'darkness',
+    with before
+         [; Go:     
+                if (location has general) 
+                   "There's nothing like that here.";
+         ],
+    with each_turn
+         [;
+            if (action == ##HELP) rtrue;
+            if (self.turns_active % 2 == 0 && Adventurer in Pit)
+            {
+                print "^The adventurer whispers into the darkness and fumbles
+                with something, 'Please light. Please light.' There is another
+                wooden scratching sound.^";
+            }
+            if (self.turns_active == 5 && Adventurer in Pit && player in Pit)
+            {
+                deadflag = 1;
+                print "With a rough scritch, tiny sparks momentarily fill the
+                pit with a sharp, painful light. The adventurer says, 'AHA!' and
+                more light and a tiny flame erupt from the tip of a small wooden
+                stick. Harsh, bitter, excruciating light ";
+
+                if (Grue.eyesopen)
+                    print "burns your useless eyes and you try to shade them
+                    with your paws.^^";
+                else
+                    print "shines through your eyelids, and stabs at the back of
+                    your skull.^^";
+
+                if (Grue.lurking)
+                    print "Your hiding place gives you insufficient shelter";
+                else
+                    print "There is no time to hide";
+
+                print " from the onslaught of the flame's flickering
+                illumination, and you feel it burning on your skin.^^Fur, flesh
+                and even bone eventually evaporate in the guttering flame's
+                light, as the adventurer cowers on the other side of the pit.
+                Soon, all that is left of you is your shadow on the stones, and
+                the dying echoes of your howls of agony.^";
+
+                DisplayTheEnd();
+            }
+            ++self.turns_active;
+         ],
+    with turns_active -1,
+    with u_to Hollow
+;
+
+!-----------------------------------------------
+! the pit floor is scenery. pit floor is in pit.
+!-----------------------------------------------
+Object PitFloor "pit floor" Pit
+    with name 'floor' 'bottom' 'ground',
+    with before
+         [; Touch:  
+                print "Touching the pit floor you feel the soggy remains of the 
+                many hapless creatures who have fallen here, either dying on 
+                impact or - for those less lucky - after finding themselves 
+                trapped, unable to climb out. Crumbling bones and tattered rags 
+                are all that is left of many an adventurer that came this way - 
+                those that didn't end up as a meal for a lurking grue.^^";
+                if (Adventurer in Pit) "Your claws brush against the still
+                living, moving adventurer and you smile, baring terrible, sharp 
+                fangs. You prefer your meals fresh.";
+                rtrue;
+            Taste: 
+                "From the pit floor you smell you taste myriad sensations too
+                 disgusting to properly describe here.";
+            Smell: 
+                "You smell the pit floor you smell decay and filth, and the 
+                 leavings of the tiny creatures that feed on them.";
+        ],
+    has scenery;
+
+!---------------------------------------------
+! the pit wall is scenery. pit wall is in pit.
+!---------------------------------------------
+Object PitWall "pit wall" Pit
+    with name 'pit' 'wall',
+    with before
+         [; Touch: 
+                "Touching the pit wall, you feel rough, tumbled stone, perfect 
+                 for lurking.";
+            Smell: 
+                "From the pit wall you smell stone covered in muck and rotting 
+                 detritus.";
+         ],
+    has scenery;
+
+!-----------------------------------------------------------
+! the crumbling bones is scenery. crumbling bones is in pit.
+!-----------------------------------------------------------
+Object CrumblingBones "crumbling bones" Pit
+    with name 'bones' 'body' 'corpse' 'carcass',
+    with before
+         [; Touch:
+               "Touching the crumbling bones, you feel the soft, worm-eaten 
+                remains. With a disgusting splortch, the unsteady mass sinks 
+                further into the viscous muck of the pit floor.";
+            Taste:
+               "From the crumbling bones you taste ... oh my. I think I'm going
+                to be sick.";
+         ],
+    has scenery;
+
+
+!-------------------------------------------------------------------------------
+!                             C H A R A C T E R S
+!-------------------------------------------------------------------------------
+Class Creature
+ with eyesopen     false
+    , slavering    false
+    , lurking      false
+    , lurk_count   0
+    , attack_count 0
+;
+
+Creature Grue "grue"
+    with name 'grue';
+
+Object Eyes "eyes"
+    with name 'eyelids' 'eyes',
+         before
+         [; Open:
+                print "That didn't help much. It is still pitch dark.^";
+                Grue.eyesopen = true; rtrue;
+
+            Close:
+                if (Grue.eyesopen)
+                    print "That's better.^";
+                else
+                    "Your eyes are already closed.";
+
+                Grue.eyesopen = false; rtrue;
+
+            Examine:
+                print "Your eyes are ";
+                if (Grue.eyesopen)
+                    print "open, not doing you much good as it's pitch black";
+                else
+                    print "closed, not that it makes much difference";
+
+                ", and grues haven't invented mirrors.";
+         ],
+    has  openable scenery;
+
+Object Fur "fur"
+    with name 'fur',
+    with description 
+         [; "Thick, soft fur covers most of your body, providing warmth in the 
+             damp, cool environment you call home. Matted in places, and crawling
+             with the odd parasite, it could use a good grooming. Perhaps when 
+             you're not so hungry.";
+         ],
+    has scenery;
+
+Object Fangs "fangs"
+    with name 'fangs' 'teeth',
+    with description
+         [; print "Sharp, terrible. ";
+
+            if (Grue.slavering)
+                "Properly slavering now, they drip saliva in a deeply menacing
+                 way.";
+            else
+                "They are not currently slavering.";
+         ],
+    has scenery;
+
+Object Claws "claws"
+    with name 'claws'
+    with description [; "Sharp, terrible. "; ],
+    has scenery;
+
+Object Disposition "disposition"
+    with name 'disposition' 'delightful' 'attitude',
+         description "Terrible, terrible.",
+    has scenery;
+
+
+!----------------------------------------------------
+! the adventurer is a thing. Adventurer is in cavern.
+!----------------------------------------------------
+Attribute been_smelled;
+Attribute been_heard;
+Attribute been_touched;
+Attribute been_tasted;
+Attribute been_seen;
+
+Object Adventurer "adventurer" Cavern
+    with name 'adventurer' 'adv' 'advent',
+    with description
+         [; print "It is dark.";
+
+            if (Grue.eyesopen == false)
+                print " Also your eyes are closed.";
+
+            print "^";
+         ],
+    with life
+         [; Answer, Ask, Tell, Order: 
+               "Grues are silent hunters, as making any kind of noise is likely 
+                to frighten off prey.";
+         ],
+    with before
+         [; Touch:  
+                if (self has been_touched)
+                {
+                    deadflag = 1;
+
+                    print "You reach closer to the adventurer, stretching out 
+                    your terrible, sharp claws for a sense of the tender flesh 
+                    of your prey. As you do, you barely notice a strange 
+                    metallic rattling sound.^^Too late, you hear the rush of air 
+                    escaping a metal cannister. 'HA! Suck repellant, grue!' the 
+                    adventurer yells ";
+
+                    if (location ~= Pit) 
+                        print "and retreats into the distance.";
+
+                    if (Grue.eyesopen)
+                        print "The sharp pain in your lungs is only matched
+                        by the burning of your eyes";
+                    else
+                        print "The foul stench and disorienting cloud of mist";
+
+                    if (location == Pit) 
+                        print " overwhelm you as something metallic bites into 
+                        your flesh. You feel warm blood rushing from the wound 
+                        as you lose consciousness.";
+                    else
+                        print " cause you to stumble, trip, fall, into a deep 
+                        crevice...^";
+
+                    DisplayTheEnd(); rtrue;
+                }
+                else
+                {
+                    give self been_touched;
+
+                    print "You reach out with your claws to give the adventurer 
+                    a gentle nudge.^^";
+
+                    if (Adventurer in Hollow)
+                        AdventurerFalls();
+                    else
+                        print "The adventurer shuffles just out of reach.^";
+
+                    ScurryAway(); rtrue;
+                }
+            Smell:  
+                if (self has been_smelled)
+                {
+                    deadflag = 1;
+
+                    print "You lean closer to fill your lungs with the scent of 
+                    your prey. As you do, you disturb a small pebble, and the 
+                    noise alerts the adventurer to your presence. With a girlish
+                    scream, the adventurer flails about the ", (name) location;
+
+                    if (Adventurer in Pit)
+                    {
+                        print "Something sharp bites into your flesh, and you 
+                        feel warm blood rushing from the wound as you lose 
+                        consciousness.^";
+                    }
+                    else
+                    {
+                        print ", knocking you down in the rush to escape.  You 
+                        hear the clang and rattle of equipment and retreating 
+                        footfalls echo through the caverns.^";
+
+                        DisplayStarvation();
+                    }
+                    DisplayTheEnd(); rtrue;
+                }
+                else
+                {
+                    give self been_smelled;
+
+                    if (Adventurer in Hollow)
+                        AdventurerFalls();
+                    else
+                        print "From the adventurer, you smell fear, exhaustion, 
+                        and poor life choices. The adventurer is surrounded by a 
+                        miasma of sweat, leather and desperation. Beneath all of 
+                        this, you sense the cutting scent of sharpened, oiled 
+                        steel.^^Despite the danger of confronting an adventurer
+                        in your hunger-weakened state, your sense of smell 
+                        shouts 'prey'.^";
+
+                    ScurryAway(); rtrue;
+                }
+            Listen:  
+                if (self has been_heard)
+                {
+                    deadflag = 1;
+
+                    print "The adventurer is breathing faster now, muttering 
+                    under troubled breaths. The boot soles are still as they 
+                    stand their ground. You hear the grating sound of metal 
+                    sliding on metal, then a swift, wild swipe through the air.
+                    Pain, sharp and sudden, then the smell of your own blood.^";
+
+                    DisplayTheEnd(); rtrue;
+                }
+                else
+                {
+                    give self been_heard;
+
+                    print "From the adventurer, you hear heavy breathing,
+                    punctuated with the occasional muffled sob. As the 
+                    adventurer moves around the cavern, you hear equipment
+                    rustling, and bits of metal clang.^";
+
+                    ScurryAway(); rtrue;
+                }
+            Taste:  
+                if (self has been_tasted)
+                {
+                    deadflag = 1;
+
+                    print "You reach closer to the adventurer, creeping silently 
+                    on padded feet. ";
+
+                    if (Grue.slavering) print "Flecks of foam and saliva from 
+                        your fangs drip on the adventurer's boots";
+                    else print "Your stomach rumbles from hunger";
+
+                    print ", and you hear a small gasp";
+
+                    if (Adventurer in Pit) print ". Something sharp bites into 
+                        your flesh, and you feel warm blood rushing from the 
+                        wound as you lose consciousness.";
+                    else print ", followed by the scuffle of leather on stone, 
+                        retreating into the distance.^";
+
+                    DisplayStarvation(); 
+                    DisplayTheEnd(); rtrue;
+                }
+                else if (Adventurer in Hollow)
+                {
+                    print "You reach closer, creeping silently on padded 
+                    feet. You open your mouth to have a taste. You hear a 
+                    scrape, a rush of air, then a scream that ends abruptly in a 
+                    splash/crunch/thud that echoes through the caverns.  A long 
+                    silence follows, then a low moan issues from the depths of 
+                    the pit.^";
+
+                    move Adventurer to Pit; rtrue;
+                }
+                else
+                {
+                    give self been_tasted;
+
+                    print "You reach closer, creeping silently on padded feet. 
+                    Before you open your mouth to have a taste, the adventurer 
+                    shuffles just out of reach. All you taste is empty air.^";
+
+                    ScurryAway(); rtrue;
+                }
+            Take: 
+                if (++self.take_count == 2) 
+                   "Seriously? No.";
+                else 
+                   "You haven't got a pocket large enough to carry the 
+                    adventurer. Or any pockets, for that matter. Also, no.";
+         ],
+    with take_count  0,
+    has talkable edible scenery 
+        ~been_heard 
+        ~been_smelled 
+        ~been_touched 
+        ~been_tasted 
+        ~been_seen;
+
+
+!-------------------------------------------------------------------------------
+!                       M A I N   E N T R Y   P O I N T
+!-------------------------------------------------------------------------------
+[ Initialise;
+    location = Lair;
+
+    help_state  = 0;
+    compass_count = 0; ! how many times player asks to go north, south
+
+    move Grue        to player;
+    move Eyes        to player;
+    move Fur         to player;
+    move Fangs       to player;
+    move Claws       to player;
+    move Disposition to player;
+
+    move Adventurer  to Cavern;
+
+    print "^It is pitch black. You are a grue.^^";
+];
+
+
+!-------------------------------------------------------------------------------
+!                            S U B R O U T I N E S
+!-------------------------------------------------------------------------------
+[ DisplayStarvation;
+    print "^Your meal has escaped. Shrugging, you slip back into your lair and
+    fall asleep.^^Starvation eventually sets in, and you are too weak to move
+    when a young grue, searching for a lair to make his own, descends upon
+    you.^";
+];
+
+[ DisplayTheEnd;
+    if (deadflag == 1)
+        "^It is pitch black. You are an ex-grue.";
+    else if (deadflag == 2)
+    {
+        score++;
+        "^You are no longer hungry. Sated, you shuffle back to your lair to
+        sleep.";
+    }
+];
+
+[ SetDarkness;
+    print "It's pitch dark, you can't see a thing.^";
+
+    if (Grue.eyesopen == false)
+        print "Also your eyes are closed.^Which is fine.^";
+    else
+        print "The darkness is absolute. Your eyes are useless here.^";
+];
+
+[ CheckEyes;
+    if (Grue.eyesopen == false)
+        print "^And your eyes are closed.^";
+];
+
+[ ScurryAway;
+    if      (Adventurer in Cavern) move Adventurer to Tunnel;
+    else if (Adventurer in Tunnel) move Adventurer to Grotto;
+    else if (Adventurer in Grotto) move Adventurer to Hollow;
+    else if (Adventurer in Hollow) move Adventurer to Pit;
+
+    if (Adventurer has been_seen && Adventurer notin Pit)
+        "^The adventurer stumbles deeper into the ", (name) location, ".";
+];
+
+[ AdventurerFalls;
+    print "You hear the scuff of boots on the smooth stone, then a rush of air
+    and a scream as the adventurer plummets into the pit. A loud, wet thud
+    emerges from below, followed by a pathetic moan.^";
+];
+
+
+[ SmellAdventurer;
+    "^You can smell an adventurer here who reeks of sweat, dirt, and
+     desperation.";
+];
+
+[ DescribeRoom x;
+    if (x has general)
+    {
+        SetDarkness();
+        rtrue;
+    }
+    else if (Adventurer in location)
+    {
+        give Adventurer been_seen;
+        "You sense a tasty adventurer in the ", (name) location, ".";
+    }
+];
+
+[ DescribeNothing x y;
+    if      (action == ##LISTEN) y = "hear";
+    else if (action == ##SMELL)  y = "smell";
+    else if (action == ##TASTE)  y = "taste";
+
+    "From the ", (name) x, " you ", (string) y, " nothing of note..";
+];
+
+
+!------------------------------------------------------------------------------
+!                 G R A M M A R   A N D   E X T E N S I O N S
+!------------------------------------------------------------------------------
+[ NoCompassSub;
+
+    if (++compass_count < 3)
+    {
+       "We'll just ignore the fact that you possess neither the concept of 
+        cardinal directions, let alone a compass.";
+    }
+];
+
+[ ExamineSelfSub;
+    if (verb_word == 'examine')
+    {
+        print "You are more accustomed to using your other senses.^";
+        CheckEyes(); rtrue;
+    }
+
+    if (verb_word == 'smell')
+    {
+        print_ret "From yourself you smell a relatively healthy,
+                   middle-aged grue, free of parasites. Also hunger.";
+    }
+
+    if (verb_word == 'touch')
+    {
+        print "Touching yourself, you feel you are covered in fur. Still,
+               you can feel the outline of your ribcage and the hollow of
+               your empty stomach. You take a moment to check your claws
+               for remnants of your last meal and decide they are sharp
+               enough for now. Your fangs, though slightly worn from age
+               and gnawing bones, are still formidable. ";
+
+        if (Grue.slavering)
+            print_ret "Properly slavering now, they drip saliva in a
+                       deeply menacing way.";
+        else
+            print_ret "They are not currently slavering.";
+    }
+
+    if (verb_word == 'listen')
+    {
+        print_ret "From yourself you hear only your own shallow
+                   breathing and the occasional low rumbling of your
+                   empty stomach.";
+    }
+];
+
+
+[ JustListenSub;
+    if (location == Lair)
+    {
+        "You listen to the Lair -^^It is blissfully quiet here, deep in the
+         crevice you call home.^^Just outside, you barely hear the scuff of a
+         boot on stone, doing its best not to be heard.";
+    }
+    else if (location == Cavern)
+    {
+        print "You listen to the cavern -^^It is quiet here, but dripping water
+               echoes from the distance, deeper in the cavern.^";
+
+        if (Adventurer in Cavern)
+            print "^You can hear the heavy breathing of a frightened adventurer
+            here. Occasionally the adventurer bumps into a boulder or wall while
+            helplessly stumbling around in the dark.^";
+    }
+    else if (location == Tunnel)
+    {
+        print "You listen to the tunnel -^^Your breathing echoes faintly from
+        close by, as the tunnel narrows here, and opens wider toward your lair.
+        Dripping water echoes from the distance, deeper in the cavern.^";
+        if (Adventurer in Tunnel) print "^You can hear the heavy breathing of a
+        frightened adventurer here. The adventurer's hands slap the wall,
+        helplessly looking for an exit.^";
+    }
+    else if (location == Grotto)
+    {
+        print "You listen to the grotto -^^The drip and splash of flowing water
+        echoes from smooth walls here where the tunnel opens wider. It is
+        strongest from one side of the grotto, where water oozes from cracks in
+        the wall, falls in rivulets to the floor, forming a small stream. Deeper
+        in the darkness, you can hear the dripping echo in a small hollow.^";
+        if (Adventurer in Grotto) print "^Clumsy splashing and the wet squish of
+        muddy boots on smooth stone let you know you share the grotto with an
+        adventurer.^";
+    }
+    else if (location == Hollow)
+    {
+        print "You listen to the hollow -^^The faint trickle of the stream
+        nearby echoes in this hollow, scooped out of the stone and smoothed by
+        ancient running water. There is another texture to the sound here as
+        well, and you sense a deep pit just a few steps away.^";
+    }
+    else if (location == Pit)
+    {
+        print "You listen to the pit - From the sounds of your claws during your 
+        descent and the echo of your breathing, you sense that this pit is deep
+        but narrow. From the floor of the pit, you hear the scuttling of the 
+        tiny, many-legged creatures that survive among bones and decay.^";
+    }
+
+    if (location has general) 
+    {
+        give location ~general;
+        <Look location>;
+    }
+];
+
+[ JustTouchSub;
+    if (location == Lair)
+    {
+        print "(the lair wall)^";
+        <<Touch LairWall>>;
+    }
+    else if (location == Cavern)
+    {
+        print "What do you want to touch?^";
+    }
+    else if (location == Tunnel)
+    {
+        give location ~general;
+        print "Touching the tunnel wall, you feel cool stone worn smooth by
+        water. The walls are cracked and rougher in the direction of your lair,
+        and smoother as you go deeper in the tunnel.^^The floor is hard, smooth
+        stone, with a thin layer of slime and mud tracked here from deeper in
+        the tunnel.^";
+    }
+    else if (location == Hollow)
+    {
+        give location ~general;
+        print "The hollow is dry now, as only occasionally does the slow stream
+        back up enough to flood the grotto nearby. As you pad slowly around,
+        your toes reach the sheer edge of a caved-in section of the floor.^";
+    }
+    else <<Touch location>>;
+
+];
+
+[ JustSmellSub;
+    if (location == Lair) print "You smell the Lair -^^This place smells of you.
+        Comfort, sleep, safety and complete, beautiful darkness.^^Your food
+        stash is empty now, leaving only the fading scents of past meals to
+        remind you of your growing hunger. More tantalizing scents waft in from
+        just outside.^";
+    else if (location == Cavern)
+    {
+        print "You smell the cavern -^^Damp, stale air is occasionally
+        punctuated with the scents of long dead prey wafting from deeper in the
+        cavern.^";
+        if (Adventurer in Cavern) SmellAdventurer();
+    }
+    else if (location == Tunnel)
+    {
+        print "You smell the tunnel -^^The passing of the many cave-dwelling
+        creatures that share the darkness with you is more evident here. The
+        scent of rot and decay still find their way here from deeper in the
+        cavern. Your own smell is strong here as well. Your lair is not far.^";
+        if (Adventurer in Tunnel) SmellAdventurer();
+    }
+    else if (location == Grotto)
+    {
+        print "You smell the grotto-^^The air has a slight chill here, and
+        smells of fresh water and wet stone. Nearby, you can detect the whiff
+        of decay.^";
+        if (Adventurer in Grotto) SmellAdventurer();
+    }
+    else if (location == Hollow)
+    {
+        print "You smell the hollow-^^Decay, rot, and the bitter, foul smell of
+        death waft up here from a deep pit just below";
+        if (Adventurer in Hollow) print ". You also detect the scent of panic 
+        and desperation from an adventurer here.^";
+        else print ".^";
+    }
+    else if (location == Pit)
+    {
+        print "You smell the pit -^^The stench of death and rotting flesh is 
+        overwhelming here. Greasy and bitter, you will be cleaning the smell of 
+        it out of your fur for days";
+        if (Adventurer in Pit && player in Pit) print ".^^The scent of the 
+        injured adventurer is stronger now, mingled as it is with blood and 
+        panic.^";
+        else print ".^";
+    }
+    else <<Smell location>>;
+
+    if (location has general)
+    {
+        give location ~general;
+        <Look location>;
+    }
+];
+
+[ EnterPitSub;
+    if (location == Hollow)
+    {
+        print "Using your sharp claws, you gingerly climb down the rock walls
+        of the pit, and land in...^";
+        PlayerTo(Pit);
+    }
+    else
+        "There's nothing like that here.";
+];
+
+[ GrueAttackSub;
+    if (verb_word == 'bite')    second = Fangs;
+    if (verb_word == 'scratch') second = Claws;
+    if (second == nothing)
+        "With what? Your terrible claws, your slavering fangs, or your
+        delightful disposition?";
+    else if (second == Disposition)
+        "You fix the ", (name) noun, " with a withering stare and an air of
+         superiority. This has no effect.";
+    else if (second ~= Fangs or Claws)
+        print_ret (name) second, " is not something you can attack ", 
+        (name) noun, " with.^";
+    else if (noun == player && second == Fangs or Claws)
+        "Ow.";
+    else if (noun ~= Adventurer && second == Fangs or Claws)
+        "You lash out with your ", (name) second, " at ", (name) noun, ".";
+    else if (noun == Adventurer && second == Fangs or Claws)
+    {
+        ++Grue.attack_count;
+        if (Grue.attack_count < 2)
+        {
+            print "Are you sure you want to do that? Adventurers are tasty, but
+            occasionally they fight back. Plus, you enjoy your meals fresh and,
+            preferably, still kicking.^^You lash out with your ", (name) second,
+            " at the adventurer.^";
+
+            ScurryAway();
+        }
+        else
+        {
+            deadflag = 1;
+            print "Your stomach rumbles from hunger, and you hear a small gasp
+            nearby, followed by the scuffle of leather boots on stone,
+            retreating into the distance.^";
+            DisplayStarvation();
+            DisplayTheEnd();
+        }
+    }
+];
+
+[ EatAdventurerSub;
+    if (noun ~= Adventurer) "That's plainly inedible.";
+
+    if (Adventurer notin location && player in location)
+    {
+        "Your prey is no longer within reach in the ",
+        (name) location, ".";
+    }
+    else if (Grue.lurking && player in Pit)
+    {
+        deadflag = 2;
+
+        print "Slowly, silently, you emerge from your hiding
+        place. You stretch your claws toward your prey, open
+        your mouth wide, revealing terribly sharp fangs";
+
+        if (Grue.slavering) print ", properly slavering now";
+
+        print "... and...^^POUNCE!^";
+
+        DisplayTheEnd();
+    }
+    else if (Grue.lurking && player notin Pit)
+    {
+        print "Slowly, silently, you emerge from your hiding
+        place. You stretch your claws toward your prey, open
+        your mouth wide, revealing terribly sharp fangs";
+
+        if (Grue.slavering) print ", properly slavering now";
+
+        print "... and...^^The adventurer shuffles away, deeper
+        into the darkness. Your claws and fangs close on
+        nothing but the empty air.^";
+
+        ScurryAway();
+    }
+    else
+    {
+        deadflag = 1;
+
+        print "In your hunger and desperation, you lurch for the
+        adventurer, emitting a terrifying howl. You trip in a
+        humiliating, un-gruelike way.^^Your final thoughts, just
+        before the adventurer's cold metal sword plunges into
+        your unprotected back, are regrets. Your impatience has
+        done you in - you should have stayed hidden.^";
+
+        DisplayTheEnd();
+    }
+];
+
+[ HelpSub;
+    ++help_state;
+    if      (help_state == 1) "Grues are known for two things.";
+    else if (help_state == 2) "Grues lurk in dark places and eat adventurers.";
+    else if (help_state == 3) "It's dark and you're hungry. Go with that.";
+    else if (Adventurer hasnt been_seen) "Look for an adventurer to
+        eat, but don't use your eyes.";
+    else if (location has general) "Look around, but don't use your eyes.";
+    else if ( Adventurer has been_touched ||
+              Adventurer has been_tasted  ||
+              Adventurer has been_smelled ||
+              Adventurer has been_heard
+            ) "Your prey keeps getting away. Maybe find a place with no easy
+        way out.";
+    else if (location == Pit && Adventurer in Pit) "Try lurking here.";
+    else "Look around, but don't use your eyes.";
+];
+
+[ LurkSub;
+    Grue.lurking = true;
+
+    print "You meld with the darkness, moving silently on padded feet, your 
+    black fur muffling movements and blending into the tumbled rocks ";
+
+    if (player in Pit) print "and debris "; 
+
+    print "of the ", (name) location, ". "; 
+
+    if (Grue.eyesopen == false) print "Your useless eyes are closed and you are 
+    able to concentrate on your other senses.";
+
+    if (++Grue.lurk_count == 2)
+        "^^Lurky lurk lurk. What a funny word.";
+    else
+        "^^You are lurking. You lurk.";
+];
+
+[ LurkStopSub;
+    if (Grue.lurking)
+    {
+        if (player in Lair)
+            print "You emerge from your hiding spot and skulk back to your 
+            lair.^";
+        else if (player in Tunnel)
+            print "You emerge from your hiding spot and delve deeper into the 
+            caverns.^";
+        else if (player in Hollow) 
+            print "You emerge from the clutter of rubble and boulders and claw 
+            your way to the top of the pit.^";
+    }
+
+    Grue.lurking = false;
+];
+
+[ SlaverStartSub;
+    if (Grue.slavering)
+       "Your mouth is already open and drooling.";
+    else
+    {
+        print "Your fangs can now be described as 'slavering'.^";
+        Grue.slavering = true;
+    }
+];
+
+[ SlaverStopSub;
+    if (Grue.slavering)
+    {
+        print "In deference to stealth and propriety, you close your mouth and
+        stop slavering.^";
+        Grue.slavering = false;
+    }
+    else
+        "Your mouth is already closed.";
+];
+
+[ BlinkEyesSub;
+    <<Close Eyes>>;
+];
+
+[ BurgeringSub;
+    "Sorry, Becky's not here.";
+];
+
+[ GrowlingSub;
+    "Grues are silent hunters, as making any kind of noise is likely to frighten 
+     off prey.";
+];
+
+[ XtzzyingSub;
+    "A hollow voice says ~fool~.";
+];
+
+[ CreditsSub;
+    print "---------------------------------------^";
+    print "GRUE^";
+    print "An Interactive Fiction by Charles Mangin^";
+    print "---------------------------------------^";
+    print "Inform6 conversion by Michael Sternberg^";
+];
+
+Include "Grammar.h";
+
+!------------------------------------
+! override default inventory command
+!------------------------------------
+[ InvSub;
+    "You are a grue. Grues don't have pockets.";
+];
+
+Extend "examine" replace
+    * "self"    -> ExamineSelf
+    * noun      -> Examine;
+
+Extend "listen" replace
+    *           -> JustListen
+    * "self"    -> ExamineSelf
+    * "to" noun -> Listen
+    * noun      -> Listen;
+
+Extend "touch" replace
+    *           -> JustTouch
+    * "self"    -> ExamineSelf
+    * noun      -> Touch;
+
+Extend "smell" replace
+    *           -> JustSmell
+    * "self"    -> ExamineSelf
+    * noun      -> Smell;
+
+Extend "enter" replace
+    * "pit"     -> EnterPit
+    * noun      -> Enter;
+
+Extend "drink" replace
+    * "from" noun   -> Drink
+    * noun          -> Drink;
+
+Extend "climb" replace
+    * "down" "pit"  -> EnterPit
+    * "down"        -> EnterPit
+    * noun          -> Climb;
+
+Extend "attack" first
+    * noun                -> GrueAttack
+    * noun 'with'  noun   -> GrueAttack
+    * noun 'using' noun   -> GrueAttack;
+
+Extend "kill" first
+    * noun                -> GrueAttack
+    * noun 'with'  noun   -> GrueAttack
+    * noun 'using' noun   -> GrueAttack;
+
+Extend "eat" replace
+    * edible        -> EatAdventurer
+    * noun          -> Eat;
+
+Verb "help" 
+     "hint" 
+     "hints"    *  -> Help;
+
+Verb "lurk"     *           -> Lurk;
+Verb "blink"    *           -> BlinkEyes
+                * "eyes"    -> BlinkEyes;
+
+Verb "bite"     * noun      -> GrueAttack;
+Verb "scratch"  * noun      -> GrueAttack;
+
+Verb "start"    * "drooling"    -> SlaverStart
+                * "slaver"      -> SlaverStart;
+Verb "drool" 
+     "slaver"   *               -> SlaverStart;
+
+Verb "stop"     * "drooling"    -> SlaverStop
+                * "slaver"      -> SlaverStop;
+
+Verb "burger"   * -> Burgering;
+Verb "growl" 
+     "roar" 
+     "yell"     * -> Growling;
+Verb "xyzzy"    * -> Xtzzying;
+Verb "credits"  * -> Credits;
