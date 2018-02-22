@@ -3,7 +3,7 @@ ZIP		= $(BIN)/info3m.bin
 
 DATE    = 171019
 REL		= 1
-DSK		= grue_$(DATE)_r$(REL)_z3m.dsk
+DSK		= grue_$(DATE)_r$(REL)_z3m_apple2.dsk
 
 all:	$(DSK)
 
